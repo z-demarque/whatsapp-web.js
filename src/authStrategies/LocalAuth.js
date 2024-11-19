@@ -1,42 +1,51 @@
-'use strict';
+"use strict";
 
-const path = require('path');
-const fs = require('fs');
-const BaseAuthStrategy = require('./BaseAuthStrategy');
+const path = require("path");
+const fs = require("fs");
+const BaseAuthStrategy = require("./BaseAuthStrategy");
 
 /**
  * Local directory-based authentication
  * @param {object} options - options
  * @param {string} options.clientId - Client id to distinguish instances if you are using multiple, otherwise keep null if you are using only one instance
- * @param {string} options.dataPath - Change the default path for saving session files, default is: "./.wwebjs_auth/" 
-*/
+ * @param {string} options.dataPath - Change the default path for saving session files, default is: "./.wwebjs_auth/"
+ */
 class LocalAuth extends BaseAuthStrategy {
-    constructor({ clientId, dataPath }={}) {
+    constructor({ clientId, dataPath } = {}) {
         super();
 
         const idRegex = /^[-_\w]+$/i;
-        if(clientId && !idRegex.test(clientId)) {
-            throw new Error('Invalid clientId. Only alphanumeric characters, underscores and hyphens are allowed.');
+        if (clientId && !idRegex.test(clientId)) {
+            throw new Error(
+                "Invalid clientId. Only alphanumeric characters, underscores and hyphens are allowed."
+            );
         }
 
-        this.dataPath = path.resolve(dataPath || './.wwebjs_auth/');
+        this.dataPath = path.resolve(dataPath || "./.wwebjs_auth/");
         this.clientId = clientId;
     }
 
     async beforeBrowserInitialized() {
         const puppeteerOpts = this.client.options.puppeteer;
-        const sessionDirName = this.clientId ? `session-${this.clientId}` : 'session';
+        const sessionDirName = this.clientId
+            ? `session-${this.clientId}`
+            : "session";
         const dirPath = path.join(this.dataPath, sessionDirName);
 
-        if(puppeteerOpts.userDataDir && puppeteerOpts.userDataDir !== dirPath) {
-            throw new Error('LocalAuth is not compatible with a user-supplied userDataDir.');
+        if (
+            puppeteerOpts.userDataDir &&
+            puppeteerOpts.userDataDir !== dirPath
+        ) {
+            throw new Error(
+                "LocalAuth is not compatible with a user-supplied userDataDir."
+            );
         }
 
         fs.mkdirSync(dirPath, { recursive: true });
-        
+
         this.client.options.puppeteer = {
             ...puppeteerOpts,
-            userDataDir: dirPath
+            userDataDir: dirPath,
         };
 
         this.userDataDir = dirPath;
@@ -44,13 +53,32 @@ class LocalAuth extends BaseAuthStrategy {
 
     async logout() {
         if (this.userDataDir) {
-            await fs.promises.rm(this.userDataDir, { recursive: true, force: true })
+            // If the browser is still running, then it needs to be closed before
+            // removing the session folder, or else the error resource busy will occur
+            if (this.client.pupBrowser) {
+                return await this.client.pupBrowser
+                    .close()
+                    .then(async () => {
+                        await fs.promises
+                            .rm(this.userDataDir, {
+                                recursive: true,
+                                force: true,
+                            })
+                            .catch((e) => {
+                                throw new Error(e);
+                            });
+                    })
+                    .catch((e) => {
+                        throw new Error(e);
+                    });
+            }
+            await fs.promises
+                .rm(this.userDataDir, { recursive: true, force: true })
                 .catch((e) => {
                     throw new Error(e);
                 });
         }
     }
-
 }
 
 module.exports = LocalAuth;
